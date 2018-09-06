@@ -29,6 +29,8 @@ MAINTAINER Gerald Venzl <gerald.venzl@oracle.com>
 
 # Environment variables required for this build (do NOT change)
 # -------------------------------------------------------------
+ARG DOWNLOAD_URL="http://host.docker.internal:8000"
+
 ENV ORACLE_BASE=/opt/oracle \
     ORACLE_HOME=/opt/oracle/product/12.1.0.2/dbhome_1 \
     INSTALL_FILE_1="linuxamd64_12102_database_1of2.zip" \
@@ -52,24 +54,30 @@ ENV INSTALL_DIR=$ORACLE_BASE/install \
     LD_LIBRARY_PATH=$ORACLE_HOME/lib:/usr/lib \
     CLASSPATH=$ORACLE_HOME/jlib:$ORACLE_HOME/rdbms/jlib
 
-# Copy binaries
-# -------------
-COPY $INSTALL_FILE_1 $INSTALL_FILE_2 $INSTALL_RSP $PERL_INSTALL_FILE $SETUP_LINUX_FILE $CHECK_SPACE_FILE $INSTALL_DB_BINARIES_FILE $INSTALL_DIR/
+COPY $INSTALL_RSP $PERL_INSTALL_FILE $SETUP_LINUX_FILE $CHECK_SPACE_FILE $INSTALL_DB_BINARIES_FILE $INSTALL_DIR/
 COPY $RUN_FILE $START_FILE $CREATE_DB_FILE $CONFIG_RSP $PWD_FILE $CHECK_DB_FILE $USER_SCRIPTS_FILE $ORACLE_BASE/
 
-RUN chmod ug+x $INSTALL_DIR/*.sh && \
+# Copy binaries
+# -------------
+RUN gpg --keyserver pool.sks-keyservers.net --recv-keys B42F6819007F00F88E364FD4036A9C25BF357DD4 \
+    && curl -o /usr/local/bin/gosu -SL "https://github.com/tianon/gosu/releases/download/1.2/gosu-amd64" \
+    && curl -o /usr/local/bin/gosu.asc -SL "https://github.com/tianon/gosu/releases/download/1.2/gosu-amd64.asc" \
+    && gpg --verify /usr/local/bin/gosu.asc \
+    && rm /usr/local/bin/gosu.asc \
+    && rm -r /root/.gnupg/ \
+    && chmod +x /usr/local/bin/gosu
+
+RUN curl -o $INSTALL_DIR/$INSTALL_FILE_1 $DOWNLOAD_URL/$INSTALL_FILE_1 && \
+    curl -o $INSTALL_DIR/$INSTALL_FILE_2 $DOWNLOAD_URL/$INSTALL_FILE_2 && \
+    chmod ug+x $INSTALL_DIR/*.sh && \
     sync && \
     $INSTALL_DIR/$CHECK_SPACE_FILE && \
-    $INSTALL_DIR/$SETUP_LINUX_FILE
-
-# Install DB software binaries
-USER oracle
-RUN $INSTALL_DIR/$INSTALL_DB_BINARIES_FILE EE
-
-USER root
-RUN $ORACLE_BASE/oraInventory/orainstRoot.sh && \
+    $INSTALL_DIR/$SETUP_LINUX_FILE && \   
+    gosu oracle $INSTALL_DIR/$INSTALL_DB_BINARIES_FILE EE && \
+    $ORACLE_BASE/oraInventory/orainstRoot.sh && \
     $ORACLE_HOME/root.sh && \
-    rm -rf $INSTALL_DIR
+    rm -rf $INSTALL_DIR && \
+    rm /usr/local/bin/gosu
 
 USER oracle
 WORKDIR /home/oracle

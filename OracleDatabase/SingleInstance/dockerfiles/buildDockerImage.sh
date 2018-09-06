@@ -7,7 +7,9 @@
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
 # 
 # Copyright (c) 2014-2017 Oracle and/or its affiliates. All rights reserved.
-# 
+#
+
+SCRIPTPATH="$(cd "$(dirname $0)"; pwd -P)"
 
 usage() {
   cat << EOF
@@ -23,6 +25,7 @@ Parameters:
    -x: creates image based on 'Express Edition'
    -i: ignores the MD5 checksums
    -o: passes on Docker build option
+   -H: passes the Docker host address
 
 * select one edition only: -e, -s, or -x
 
@@ -64,6 +67,7 @@ EXPRESS=0
 VERSION="18.3.0"
 SKIPMD5=0
 DOCKEROPS=""
+DOCKERHOST="host.docker.internal"
 
 while getopts "hesxiv:o:" optname; do
   case "$optname" in
@@ -159,14 +163,20 @@ fi
 # ################## #
 # BUILDING THE IMAGE #
 # ################## #
-echo "Building image '$IMAGE_NAME' ..."
 
+echo "Starting nginx to make the archive folder available to the build"
+NGINX_NAME="nginx"$(date +%Y%m%d%H%M%S)
+docker pull nginx:1.15.3-alpine
+docker run -p8080:80 -d --name $NGINX_NAME -v"$SCRIPTPATH/archive:/usr/share/nginx/html:ro" nginx:1.15.3-alpine
+
+echo "Building image '$IMAGE_NAME' ..."
 # BUILD THE IMAGE (replace all environment variables)
 BUILD_START=$(date '+%s')
-docker build --force-rm=true --no-cache=true $DOCKEROPS $PROXY_SETTINGS -t $IMAGE_NAME -f Dockerfile.$EDITION . || {
+docker build --force-rm=true --no-cache=true --build-arg DOWNLOAD_URL="http://$DOCKERHOST:8080" $DOCKEROPS $PROXY_SETTINGS -t $IMAGE_NAME -f Dockerfile.$EDITION . || {
   echo ""
   echo "ERROR: Oracle Database Docker Image was NOT successfully created."
   echo "ERROR: Check the output and correct any reported problems with the docker build operation."
+  docker stop $NGINX_NAME && docker rm $NGINX_NAME
   exit 1
 }
 echo ""
@@ -175,6 +185,7 @@ BUILD_END=$(date '+%s')
 BUILD_ELAPSED=`expr $BUILD_END - $BUILD_START`
 
 echo ""
+docker stop $NGINX_NAME && docker rm $NGINX_NAME
 
 cat << EOF
   Oracle Database Docker Image for '$EDITION' version $VERSION is ready to be extended: 
